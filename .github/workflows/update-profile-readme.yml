@@ -12,8 +12,8 @@ jobs:
     timeout-minutes: 360
 
     env:
-      PERSONAL_USER: ${{ vars.PERSONAL_USER }}
-      WORK_USER: ${{ vars.WORK_USER }}
+      PERSONAL_USER: ${{ secrets.PERSONAL_USER }}
+      WORK_USER: ${{ secrets.WORK_USER }}
 
       GH_TOKEN_MAIN: ${{ secrets.GH_TOKEN_MAIN }}
       GH_TOKEN_WORK: ${{ secrets.GH_TOKEN_WORK }}
