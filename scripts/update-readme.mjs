@@ -1,56 +1,85 @@
+/**
+ * scripts/update-readme.mjs  (FULL)
+ *
+ * ✅ Features
+ * - owned repos (personal+work, include private where token allows) via /user/repos
+ * - merged PR repos via Search API (is:pr is:merged author:<user>)
+ * - merge repo sets (hydrate missing via /repos/{full_name})
+ * - filters:
+ *    - exclude forks (except allowlist)
+ *    - exclude archived
+ *    - exclude orgs (by owner.login)
+ *    - exclude profile repo itself
+ * - clone (shallow) each repo safely (handles empty repo / missing default branch)
+ * - github-linguist --json aggregation (robust parsing for multiple JSON shapes)
+ * - per-repo debug logs (clone/head/linguist keys/bytes/top langs + sample)
+ * - GraphQL contributionsCollection for both users; robust fallback when schema differs
+ * - output:
+ *    - README.md between markers
+ *    - SVG assets are written to assets/ (stable display via <img> rather than raw inline svg)
+ */
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-// =========================
-// Config / Env
-// =========================
 const PERSONAL_USER = mustEnv("PERSONAL_USER");
 const WORK_USER = mustEnv("WORK_USER");
 const GH_TOKEN_MAIN = mustEnv("GH_TOKEN_MAIN");
 const GH_TOKEN_WORK = mustEnv("GH_TOKEN_WORK");
 
 const MAX_REPOS_TO_CLONE = parseInt(process.env.MAX_REPOS_TO_CLONE ?? "200", 10);
-const CLONE_CONCURRENCY = parseInt(process.env.CLONE_CONCURRENCY ?? "3", 10);
-
 const README_MARKER_START = process.env.README_MARKER_START ?? "<!-- PROFILE_AUTOGEN:START -->";
 const README_MARKER_END = process.env.README_MARKER_END ?? "<!-- PROFILE_AUTOGEN:END -->";
 
-// 除外 org（owner.login が一致したら落とす）
+const OWNER_REPO = process.env.PROFILE_REPO_FULLNAME
+    ? process.env.PROFILE_REPO_FULLNAME
+    : `${PERSONAL_USER}/${PERSONAL_USER}`; // default assumption
+
+// Exclude orgs (owner.login match)
 const EXCLUDE_ORGS = new Set(
     (process.env.EXCLUDE_ORGS ?? "")
         .split(",")
-        .map(s => s.trim())
+        .map((s) => s.trim())
         .filter(Boolean)
-        .map(s => s.toLowerCase())
+        .map((s) => s.toLowerCase())
 );
 
-const OWNER_REPO = `${PERSONAL_USER}/${PERSONAL_USER}`; // プロフィール用 repo 想定
+// Allow fork repos explicitly (forkでも含めたい repo)
+const ALLOW_FORK_REPOS = new Set(
+    (process.env.ALLOW_FORK_REPOS ?? "play-swagger/play-swagger")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => s.toLowerCase())
+);
 
-// network knobs
-const FETCH_TIMEOUT_MS = parseInt(process.env.FETCH_TIMEOUT_MS ?? "60000", 10);
-const FETCH_RETRIES = parseInt(process.env.FETCH_RETRIES ?? "6", 10);
+// Output
+const ASSETS_DIR = process.env.ASSETS_DIR ?? "assets";
+const ASSET_PREFIX = process.env.ASSET_PREFIX ?? "profile"; // file prefix
+const LANG_TOP_N = parseInt(process.env.LANG_TOP_N ?? "12", 10);
 
-// =========================
-// Main
-// =========================
 async function main() {
     assertInGitRepo();
+    ensureBundler();
 
-    // 1) private を含めて owned repos を取る（/user/repos）
+    // Prepare assets dir
+    fs.mkdirSync(path.join(process.cwd(), ASSETS_DIR), { recursive: true });
+
+    // 1) Owned repos (private included if token permits)
     const personalOwned = await listOwnedReposAuthed(GH_TOKEN_MAIN);
     const workOwned = await listOwnedReposAuthed(GH_TOKEN_WORK);
 
-    // 2) merged PR 経由で repo を拾う（owner じゃない repo も含む）
+    // 2) Repos from merged PRs (Search API)
     const personalMergedPrRepos = await listReposFromMergedPullRequests(PERSONAL_USER, GH_TOKEN_MAIN);
     const workMergedPrRepos = await listReposFromMergedPullRequests(WORK_USER, GH_TOKEN_WORK);
 
-    // 3) repoSet（full_name -> repo）
+    // 3) Merge repo set
     const repoSet = new Map();
     for (const r of [...personalOwned, ...workOwned]) repoSet.set(r.full_name, r);
 
-    // PR 経由 repo は不足情報を /repos/:full_name で補完（private は権限がなければ落とす）
+    // Hydrate PR repos if not exist
     for (const r of [...personalMergedPrRepos, ...workMergedPrRepos]) {
         if (repoSet.has(r.full_name)) continue;
         const token = pickTokenForRepo(r.full_name);
@@ -58,67 +87,139 @@ async function main() {
         if (hydrated) repoSet.set(hydrated.full_name, hydrated);
     }
 
-    // 4) fork/archived/org 除外、プロフィール repo 自身除外
-    const filtered = [...repoSet.values()].filter(r => {
+    // 4) Filters
+    const filtered = [...repoSet.values()].filter((r) => {
         if (r.full_name === OWNER_REPO) return false;
-        if (r.fork) return false;      // fork 除外
-        if (r.archived) return false;  // archived 除外
+
+        // fork is excluded by default, but allowlisted fork repos are included
+        if (r.fork && !ALLOW_FORK_REPOS.has(r.full_name.toLowerCase())) return false;
+
+        if (r.archived) return false;
+
         const owner = (r.owner_login ?? "").toLowerCase();
-        if (owner && EXCLUDE_ORGS.has(owner)) return false; // 特定 org 除外
+        if (owner && EXCLUDE_ORGS.has(owner)) return false;
+
         return true;
     });
 
-    // 5) clone 対象（最近更新順、上限）
+    // 5) Select clone targets (by pushed_at desc)
     const repos = filtered
-        .sort((a, b) => (new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime()))
+        .sort((a, b) => new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime())
         .slice(0, MAX_REPOS_TO_CLONE);
 
-    // 6) clone & linguist 集計（ログで必ず clone 元を吐く）
-    ensureBundler();
+    // 6) Clone + linguist aggregation with strong debug
     const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), "profile-langs-"));
     const langBytes = new Map();
 
-    // 並列 clone 制限つきで実行
-    await runWithConcurrency(repos, CLONE_CONCURRENCY, async (r) => {
+    let cloneOk = 0;
+    let cloneFail = 0;
+    let headMissing = 0;
+    let linguistOk = 0;
+    let linguistEmptyOrFail = 0;
+
+    for (const r of repos) {
         const targetDir = path.join(tmpBase, r.full_name.replace("/", "__"));
         const token = pickTokenForRepo(r.full_name);
 
-        // ここで branch を決める（repo.default_branch が信用できないケース・cloneUrlが別owner tokenなども吸収）
-        const { branch, mode } = detectCloneBranch(r.clone_url, token, r.default_branch);
+        const branch = r.default_branch && r.default_branch.trim() ? r.default_branch.trim() : "";
+        console.log(`[CLONE] ${r.full_name} (branch=${branch || "(default)"}) -> ${targetDir}`);
 
-        console.log(`[CLONE] ${r.full_name} ${mode} -> ${targetDir}`);
+        let cloned = false;
         try {
             shallowCloneSmart(r.clone_url, token, targetDir, branch);
+            cloned = true;
+            cloneOk++;
         } catch (e) {
-            console.warn(`[WARN] clone failed, skip: ${r.full_name}: ${safeErr(e)}`);
-            return;
+            console.warn(`[WARN] clone failed, skip: ${r.full_name}`);
+            console.warn(String(e?.message ?? e));
+            cloneFail++;
+            continue;
         }
 
-        const linguist = runLinguistJson(targetDir);
-        for (const [lang, bytes] of Object.entries(linguist)) {
-            langBytes.set(lang, (langBytes.get(lang) ?? 0) + Number(bytes));
-        }
-    });
+        const headOk = cloned ? checkHeadOk(targetDir) : false;
+        if (!headOk) headMissing++;
 
-    // 7) Stats / 草：GraphQL contributionsCollection を両アカウント分取得してマージ
-    const personalContrib = await getContrib(PERSONAL_USER, GH_TOKEN_MAIN);
-    const workContrib = await getContrib(WORK_USER, GH_TOKEN_WORK);
+        const linguist = runLinguistJsonSafe(targetDir, r.full_name);
+        const { ok, keys, bytesSum, topPreview, sample } = summarizeLinguist(linguist);
+
+        if (ok) linguistOk++;
+        else linguistEmptyOrFail++;
+
+        // Per-repo debug
+        if (ok) {
+            console.log(
+                `[DBG][REPO] ${r.full_name} headOk=${headOk ? "yes" : "no"} keys=${keys} bytes=${bytesSum} top=${JSON.stringify(
+                    topPreview
+                )}`
+            );
+        } else {
+            console.log(
+                `[DBG][REPO] ${r.full_name} headOk=${headOk ? "yes" : "no"} keys=${keys} bytes=0 top=[] sample=${JSON.stringify(
+                    sample
+                )}`
+            );
+        }
+
+        // Aggregate (robust bytes extraction)
+        for (const [lang, v] of Object.entries(linguist)) {
+            const n = extractBytes(v);
+            if (n == null || n <= 0) continue;
+            langBytes.set(lang, (langBytes.get(lang) ?? 0) + n);
+        }
+    }
+
+    const topLangs = toTopLangs(langBytes, LANG_TOP_N);
+    const totalBytes = [...langBytes.values()].reduce((s, n) => s + n, 0);
+    const langKeys = [...langBytes.keys()];
+
+    console.log(`[DBG] cloneOk = ${cloneOk} cloneFail = ${cloneFail}`);
+    console.log(`[DBG] headMissing = ${headMissing}`);
+    console.log(`[DBG] linguistOk = ${linguistOk} linguistEmptyOrFail = ${linguistEmptyOrFail}`);
+    console.log(`[DBG] totalBytes = ${totalBytes}`);
+    console.log(`[DBG] topLangs length = ${topLangs.length}`);
+    console.log(`[DBG] topLangs head = ${JSON.stringify(topLangs.slice(0, 3))}`);
+    console.log(`[DBG] langKeys head = ${JSON.stringify(langKeys.slice(0, 10))}`);
+
+    // 7) Contributions via GraphQL (robust fallback)
+    const personalContrib = await getContribRobust(PERSONAL_USER, GH_TOKEN_MAIN);
+    const workContrib = await getContribRobust(WORK_USER, GH_TOKEN_WORK);
     const merged = mergeContrib(personalContrib, workContrib);
 
-    // 8) README 差し込み
-    const topLangs = toTopLangs(langBytes, 12);
+    // 8) Render assets (stable display: use <img src="..."> with committed svg)
+    const generatedAt = new Date().toISOString();
+
+    const statsSvg = buildStatsCardsSvg({
+        users: { personal: PERSONAL_USER, work: WORK_USER },
+        stats: merged.stats,
+        repoCount: { before: repoSet.size, after: filtered.length, cloned: repos.length },
+    });
+
+    const langsSvg = buildLangBarsSvg({
+        title: "PR Diff Languages (All time, Linguist-based)",
+        items: topLangs,
+        note: `repos cloned: ${repos.length} / filtered: ${filtered.length} / total unique: ${repoSet.size}`,
+    });
+
+    const heatmapSvg = buildHeatmapSvg(merged.calendarByDate);
+
+    // Write assets
+    const statsPath = path.join(ASSETS_DIR, `${ASSET_PREFIX}-stats.svg`);
+    const langsPath = path.join(ASSETS_DIR, `${ASSET_PREFIX}-langs.svg`);
+    const heatPath = path.join(ASSETS_DIR, `${ASSET_PREFIX}-heatmap.svg`);
+    fs.writeFileSync(path.join(process.cwd(), statsPath), statsSvg, "utf8");
+    fs.writeFileSync(path.join(process.cwd(), langsPath), langsSvg, "utf8");
+    fs.writeFileSync(path.join(process.cwd(), heatPath), heatmapSvg, "utf8");
+
+    // 9) README block
     const md = buildMarkdownBlock({
-        generatedAt: new Date().toISOString(),
+        generatedAt,
         users: { personal: PERSONAL_USER, work: WORK_USER },
         excludeOrgs: [...EXCLUDE_ORGS],
-        repoCount: {
-            before: repoSet.size,
-            after: filtered.length,
-            cloned: repos.length
-        },
+        allowForkRepos: [...ALLOW_FORK_REPOS],
+        repoCount: { before: repoSet.size, after: filtered.length, cloned: repos.length },
         topLangs,
+        assets: { statsPath, langsPath, heatPath },
         stats: merged.stats,
-        heatmapSvg: buildHeatmapSvg(merged.calendarByDate)
     });
 
     const readmePath = path.join(process.cwd(), "README.md");
@@ -129,19 +230,12 @@ async function main() {
     console.log("README.md updated.");
 }
 
-// =========================
-// Helpers: env / exec
-// =========================
+/* ------------------------- env / shell ------------------------- */
+
 function mustEnv(key) {
     const v = process.env[key];
     if (!v) throw new Error(`Missing env: ${key}`);
     return v;
-}
-
-function safeErr(e) {
-    if (!e) return "unknown error";
-    if (typeof e === "string") return e;
-    return e?.message ?? String(e);
 }
 
 function assertInGitRepo() {
@@ -156,71 +250,52 @@ function exec(cmd, args, opts = {}) {
     return execFileSync(cmd, args, { encoding: "utf8", ...opts });
 }
 
-// =========================
-// GitHub REST with retry
-// =========================
-async function ghJson(url, token) {
-    return await fetchJsonWithRetry(url, {
-        method: "GET",
-        headers: {
-            "Accept": "application/vnd.github+json",
-            "Authorization": `Bearer ${token}`,
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    });
-}
+/* ------------------------- fetch with retry ------------------------- */
 
-async function fetchJsonWithRetry(url, init) {
-    for (let attempt = 0; attempt < FETCH_RETRIES; attempt++) {
+async function fetchWithRetry(url, init, { tries = 4, baseDelayMs = 600 } = {}) {
+    let lastErr;
+    for (let i = 0; i < tries; i++) {
         try {
-            const ac = new AbortController();
-            const t = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
-
-            const res = await fetch(url, { ...init, signal: ac.signal }).finally(() => clearTimeout(t));
-
-            // retryable status
-            if (!res.ok) {
-                const text = await res.text().catch(() => "");
-                const retryable = (res.status >= 500 || res.status === 429 || res.status === 403);
-                if (retryable && attempt < FETCH_RETRIES - 1) {
-                    await sleep(backoffMs(attempt));
-                    continue;
-                }
-                throw new Error(`GitHub API failed: ${res.status} ${res.statusText}\n${url}\n${text}`);
-            }
-
-            return await res.json();
+            const res = await fetch(url, init);
+            return res;
         } catch (e) {
-            const retryable =
-                attempt < FETCH_RETRIES - 1 &&
-                (e?.name === "AbortError" ||
-                    String(e?.cause?.code ?? "").includes("UND_ERR_SOCKET") ||
-                    String(e?.cause?.code ?? "").includes("ECONNRESET") ||
-                    String(e?.code ?? "").includes("UND_ERR_SOCKET") ||
-                    String(e?.code ?? "").includes("ECONNRESET"));
-
-            if (!retryable) throw e;
-            await sleep(backoffMs(attempt));
+            lastErr = e;
+            const delay = baseDelayMs * Math.pow(2, i);
+            await sleep(delay);
         }
     }
-    throw new Error(`fetchJsonWithRetry: exhausted retries: ${url}`);
+    throw lastErr;
 }
 
-function backoffMs(attempt) {
-    // 1s, 2s, 4s, 8s...
-    return 1000 * Math.pow(2, attempt);
+async function sleep(ms) {
+    await new Promise((r) => setTimeout(r, ms));
 }
 
-function sleep(ms) {
-    return new Promise(r => setTimeout(r, ms));
+/* ------------------------- GitHub REST ------------------------- */
+
+async function ghJson(url, token) {
+    const res = await fetchWithRetry(
+        url,
+        {
+            headers: {
+                Accept: "application/vnd.github+json",
+                Authorization: `Bearer ${token}`,
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        },
+        { tries: 4, baseDelayMs: 600 }
+    );
+
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`GitHub API failed: ${res.status} ${res.statusText}\n${url}\n${text}`);
+    }
+    return await res.json();
 }
 
-// =========================
-// Repo listing
-// =========================
 /**
- * private を含めて “認証ユーザーが owner の repo” を取る
- * - /user/repos は token の主体ユーザーに紐づく
+ * Get “repos owned by the authenticated user”
+ * /user/repos is bound to the token owner
  */
 async function listOwnedReposAuthed(token) {
     const out = [];
@@ -230,7 +305,6 @@ async function listOwnedReposAuthed(token) {
             `https://api.github.com/user/repos?per_page=100&page=${page}` +
             `&affiliation=owner&sort=pushed&direction=desc&visibility=all`;
         const batch = await ghJson(url, token);
-
         for (const r of batch) out.push(normalizeRepo(r));
         if (batch.length < 100) break;
         page++;
@@ -239,8 +313,8 @@ async function listOwnedReposAuthed(token) {
 }
 
 /**
- * PR は merged のみ（Search API）
- * - is:pr is:merged author:<user>
+ * List repos from merged PRs (Search API)
+ * is:pr is:merged author:<user>
  */
 async function listReposFromMergedPullRequests(user, token) {
     const out = new Map(); // full_name -> normalized repo
@@ -252,14 +326,13 @@ async function listReposFromMergedPullRequests(user, token) {
         const data = await ghJson(url, token);
 
         for (const item of data.items ?? []) {
-            const repoUrl = item.repository_url; // https://api.github.com/repos/owner/name
+            const repoUrl = item.repository_url;
             if (!repoUrl) continue;
-
             try {
                 const repo = await ghJson(repoUrl, token);
                 out.set(repo.full_name, normalizeRepo(repo));
             } catch {
-                // 権限がなく見えない private repo などはここで落ちる。要件上は「可能なら含める」なのでスキップ。
+                // private repos not visible by this token
                 continue;
             }
         }
@@ -289,7 +362,7 @@ function normalizeRepo(r) {
         pushed_at: r.pushed_at,
         fork: Boolean(r.fork),
         archived: Boolean(r.archived),
-        owner_login: r.owner?.login ?? ""
+        owner_login: r.owner?.login ?? "",
     };
 }
 
@@ -299,163 +372,171 @@ function pickTokenForRepo(fullName) {
     return GH_TOKEN_MAIN;
 }
 
-// =========================
-// Git clone (default branch safe)
-// =========================
-function authedCloneUrl(cloneUrl, token) {
-    // https://github.com/owner/repo.git -> https://x-access-token:TOKEN@github.com/owner/repo.git
-    return cloneUrl.replace("https://", `https://x-access-token:${token}@`);
-}
+/* ------------------------- git clone / linguist ------------------------- */
 
-function detectCloneBranch(cloneUrl, token, hintedDefaultBranch) {
-    // まずは repo API の default_branch を信用しつつ、
-    // clone 実体は “mainが無い” などがあるので ls-remote で補正する。
-    const repoUrl = authedCloneUrl(cloneUrl, token);
+function shallowCloneSmart(cloneUrl, token, targetDir, branch) {
+    fs.mkdirSync(targetDir, { recursive: true });
 
-    // 1) HEAD symref
-    const head = tryDetectDefaultBranchByHead(repoUrl);
-    if (head) return { branch: head, mode: `(branch=${head})` };
+    const authed = cloneUrl.replace("https://", `https://x-access-token:${token}@`);
 
-    // 2) hinted -> main/master の順で存在確認
-    const candidates = [];
-    if (hintedDefaultBranch) candidates.push(hintedDefaultBranch);
-    candidates.push("main", "master");
-
-    for (const b of dedupe(candidates)) {
-        if (b && branchExists(repoUrl, b)) return { branch: b, mode: `(branch=${b})` };
+    // 1) Try branch-specified clone if branch provided
+    if (branch) {
+        try {
+            exec("git", ["clone", "--depth", "1", "--branch", branch, authed, targetDir], { stdio: "inherit" });
+            return;
+        } catch {
+            // continue
+        }
     }
 
-    // 3) 最後は branch 指定なし（HEADで取る）
-    return { branch: null, mode: `(branch=HEAD)` };
+    // 2) Fallback: normal shallow clone
+    exec("git", ["clone", "--depth", "1", authed, targetDir], { stdio: "inherit" });
 }
 
-function dedupe(arr) {
-    const s = new Set();
-    const out = [];
-    for (const x of arr) {
-        if (!x) continue;
-        if (s.has(x)) continue;
-        s.add(x);
-        out.push(x);
-    }
-    return out;
-}
-
-function tryDetectDefaultBranchByHead(repoUrl) {
+function checkHeadOk(repoDir) {
     try {
-        const stdout = exec("git", ["ls-remote", "--symref", repoUrl, "HEAD"], { stdio: "pipe" });
-        const m = stdout.match(/ref:\s+refs\/heads\/([^\s]+)\s+HEAD/);
-        return m ? m[1] : null;
-    } catch {
-        return null;
-    }
-}
-
-function branchExists(repoUrl, branch) {
-    try {
-        const stdout = exec("git", ["ls-remote", "--heads", repoUrl, branch], { stdio: "pipe" });
-        return stdout.trim().length > 0;
+        exec("git", ["-C", repoDir, "rev-parse", "--verify", "HEAD"], { stdio: "pipe" });
+        return true;
     } catch {
         return false;
     }
 }
 
-function shallowCloneSmart(cloneUrl, token, targetDir, branchOrNull) {
-    fs.mkdirSync(targetDir, { recursive: true });
-
-    const repoUrl = authedCloneUrl(cloneUrl, token);
-
-    const args = ["clone", "--depth", "1"];
-    if (branchOrNull) args.push("--branch", branchOrNull);
-    args.push(repoUrl, targetDir);
-
-    exec("git", args, { stdio: "inherit" });
-}
-
-// =========================
-// Linguist
-// =========================
-function runLinguistJson(repoDir) {
-    const json = exec("bundle", ["exec", "github-linguist", "--json", repoDir], { stdio: "pipe" });
+function runLinguistJsonSafe(repoDir, fullNameForLog) {
     try {
+        const json = exec("bundle", ["exec", "github-linguist", "--json", repoDir], { stdio: "pipe" });
         return JSON.parse(json);
-    } catch {
-        console.warn(`[WARN] linguist json parse failed: ${repoDir}`);
+    } catch (e) {
+        console.warn(`[WARN] linguist failed, skip: ${fullNameForLog}`);
         return {};
     }
+}
+
+/**
+ * github-linguist --json の出力が揺れても bytes を抽出できるようにする
+ */
+function extractBytes(v) {
+    if (typeof v === "number") return Number.isFinite(v) ? v : null;
+
+    if (typeof v === "string") {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+    }
+
+    if (v && typeof v === "object") {
+        const b = v.bytes ?? v.size ?? v.totalBytes;
+        const n = Number(b);
+        return Number.isFinite(n) ? n : null;
+    }
+
+    return null;
+}
+
+function summarizeLinguist(linguist) {
+    const entries = Object.entries(linguist ?? {})
+        .map(([k, v]) => [k, extractBytes(v)])
+        .filter(([, n]) => n != null && Number.isFinite(n));
+
+    const keys = Object.keys(linguist ?? {}).length;
+    const bytesSum = entries.reduce((s, [, n]) => s + n, 0);
+
+    const topPreview = entries
+        .filter(([, n]) => n > 0)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([k, n]) => [k, n]);
+
+    const ok = entries.length > 0 && bytesSum > 0;
+
+    let sample = null;
+    if (!ok) {
+        const ks = Object.keys(linguist ?? {});
+        const sampleKey = ks[0];
+        const sampleVal = sampleKey ? linguist[sampleKey] : undefined;
+        sample = { sampleKey, sampleVal };
+    }
+
+    return { ok, keys, bytesSum, topPreview, sample };
 }
 
 function toTopLangs(langBytes, n) {
     const entries = [...langBytes.entries()].sort((a, b) => b[1] - a[1]);
     const total = entries.reduce((s, [, b]) => s + b, 0);
+    if (total <= 0) return [];
+
     return entries.slice(0, n).map(([lang, bytes]) => ({
         lang,
         bytes,
-        pct: total > 0 ? (bytes / total) : 0
+        pct: bytes / total,
     }));
 }
 
-// =========================
-// GraphQL with retry + timeout
-// =========================
+/* ------------------------- GitHub GraphQL ------------------------- */
+
 async function ghGraphql(token, query, variables) {
-    const url = "https://api.github.com/graphql";
+    const res = await fetchWithRetry(
+        "https://api.github.com/graphql",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ query, variables }),
+        },
+        { tries: 4, baseDelayMs: 700 }
+    );
 
-    for (let attempt = 0; attempt < FETCH_RETRIES; attempt++) {
-        try {
-            const ac = new AbortController();
-            const t = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
-
-            const res = await fetch(url, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`,
-                    "User-Agent": "profile-readme-updater",
-                    "Accept": "application/json",
-                },
-                body: JSON.stringify({ query, variables }),
-                signal: ac.signal,
-            }).finally(() => clearTimeout(t));
-
-            if (!res.ok) {
-                const text = await res.text().catch(() => "");
-                const retryable = (res.status >= 500 || res.status === 429 || res.status === 403);
-                if (retryable && attempt < FETCH_RETRIES - 1) {
-                    await sleep(backoffMs(attempt));
-                    continue;
-                }
-                throw new Error(`GitHub GraphQL HTTP ${res.status}: ${text.slice(0, 300)}`);
-            }
-
-            const json = await res.json();
-            if (json.errors?.length) {
-                // 一時的なエラーもありえるのでリトライ
-                if (attempt < FETCH_RETRIES - 1) {
-                    await sleep(backoffMs(attempt));
-                    continue;
-                }
-                throw new Error(`GraphQL errors: ${JSON.stringify(json.errors, null, 2)}`);
-            }
-            return json.data;
-        } catch (e) {
-            const retryable =
-                attempt < FETCH_RETRIES - 1 &&
-                (e?.name === "AbortError" ||
-                    String(e?.cause?.code ?? "").includes("UND_ERR_SOCKET") ||
-                    String(e?.cause?.code ?? "").includes("ECONNRESET") ||
-                    String(e?.code ?? "").includes("UND_ERR_SOCKET") ||
-                    String(e?.code ?? "").includes("ECONNRESET"));
-
-            if (!retryable) throw e;
-            await sleep(backoffMs(attempt));
-        }
+    const json = await res.json();
+    if (json.errors?.length) {
+        const err = new Error(`GraphQL errors: ${JSON.stringify(json.errors, null, 2)}`);
+        err._graphqlErrors = json.errors;
+        throw err;
     }
-    throw new Error("GitHub GraphQL failed after retries");
+    return json.data;
 }
 
-async function getContrib(user, token) {
-    const query = `
+/**
+ * Robust contributionsCollection:
+ * - Some schemas don't accept includePrivateContributions arg (your error).
+ * - So: try with it; if "argumentNotAccepted", fallback without it.
+ */
+async function getContribRobust(user, token) {
+    // Try 1 (with includePrivateContributions)
+    const queryWith = `
+    query($login: String!, $includePrivate: Boolean!) {
+      user(login: $login) {
+        contributionsCollection(includePrivateContributions: $includePrivate) {
+          totalCommitContributions
+          totalIssueContributions
+          totalPullRequestContributions
+          totalRepositoryContributions
+          contributionCalendar {
+            totalContributions
+            weeks {
+              contributionDays { date contributionCount }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+    try {
+        const data = await ghGraphql(token, queryWith, { login: user, includePrivate: true });
+        return normalizeContrib(data.user.contributionsCollection);
+    } catch (e) {
+        const errs = e?._graphqlErrors;
+        const argNotAccepted =
+            Array.isArray(errs) &&
+            errs.some((x) => x?.extensions?.code === "argumentNotAccepted" && x?.extensions?.argumentName === "includePrivateContributions");
+        if (!argNotAccepted) throw e;
+
+        console.warn("[WARN] contributionsCollection(includePrivateContributions) not supported. fallback without it.");
+    }
+
+    // Fallback (no arg)
+    const queryNo = `
     query($login: String!) {
       user(login: $login) {
         contributionsCollection {
@@ -466,19 +547,18 @@ async function getContrib(user, token) {
           contributionCalendar {
             totalContributions
             weeks {
-              contributionDays {
-                date
-                contributionCount
-              }
+              contributionDays { date contributionCount }
             }
           }
         }
       }
     }
   `;
-    const data = await ghGraphql(token, query, { login: user });
-    const cc = data.user.contributionsCollection;
+    const data2 = await ghGraphql(token, queryNo, { login: user });
+    return normalizeContrib(data2.user.contributionsCollection);
+}
 
+function normalizeContrib(cc) {
     const calendarByDate = new Map();
     for (const w of cc.contributionCalendar.weeks) {
         for (const d of w.contributionDays) {
@@ -491,9 +571,9 @@ async function getContrib(user, token) {
             issues: cc.totalIssueContributions,
             prs: cc.totalPullRequestContributions,
             repos: cc.totalRepositoryContributions,
-            total: cc.contributionCalendar.totalContributions
+            total: cc.contributionCalendar.totalContributions,
         },
-        calendarByDate
+        calendarByDate,
     };
 }
 
@@ -509,50 +589,64 @@ function mergeContrib(a, b) {
             issues: a.stats.issues + b.stats.issues,
             prs: a.stats.prs + b.stats.prs,
             repos: a.stats.repos + b.stats.repos,
-            total: a.stats.total + b.stats.total
+            total: a.stats.total + b.stats.total,
         },
-        calendarByDate
+        calendarByDate,
     };
 }
 
-// =========================
-// Markdown building
-// =========================
-function buildMarkdownBlock({ generatedAt, users, excludeOrgs, repoCount, topLangs, stats, heatmapSvg }) {
+/* ------------------------- README rendering ------------------------- */
+
+function buildMarkdownBlock({ generatedAt, users, excludeOrgs, allowForkRepos, repoCount, topLangs, assets, stats }) {
+    const excludeLine = excludeOrgs.length ? excludeOrgs.map((s) => `\`${s}\``).join(", ") : "(none)";
+    const allowForkLine = allowForkRepos.length ? allowForkRepos.map((s) => `\`${s}\``).join(", ") : "(none)";
+
+    // NOTE: GitHub README inline <svg> is *sometimes* unstable (sanitization / rendering edge),
+    // so we embed via <img src="assets/...svg"> (must commit assets).
+    const statsImg = `<img src="${assets.statsPath}" alt="Profile stats" />`;
+    const langsImg = `<img src="${assets.langsPath}" alt="Languages" />`;
+    const heatImg = `<img src="${assets.heatPath}" alt="Activity heatmap" />`;
+
     const langLines =
         topLangs.length === 0
-            ? `- (no data)`
-            : topLangs.map(l => `- ${l.lang}: ${(l.pct * 100).toFixed(1)}% (${formatBytes(l.bytes)})`).join("\n");
-
-    const excludeLine = excludeOrgs.length ? excludeOrgs.map(s => `\`${s}\``).join(", ") : "(none)";
+            ? "- (no language data)\n"
+            : topLangs
+                .map((x) => `- ${x.lang}: ${(x.pct * 100).toFixed(1)}% (${formatBytes(x.bytes)})`)
+                .join("\n");
 
     return [
         `${README_MARKER_START}`,
         ``,
-        `### Profile Stats (merged)`,
+        `## 🧠 PR Diff Languages (All time, Linguist-based)`,
         ``,
-        `- users: \`${users.personal}\` + \`${users.work}\``,
-        `- total contributions (last ~1y): **${stats.total}**`,
-        `- PR: **${stats.prs}** / Issue: **${stats.issues}** / Commit: **${stats.commits}** / Repo: **${stats.repos}**`,
+        statsImg,
         ``,
         `### Repo filters`,
         ``,
-        `- exclude forks: yes`,
+        `- users: ${users.personal} + ${users.work}`,
+        `- exclude forks: yes (except allowlist)`,
+        `- fork allowlist: ${allowForkLine}`,
         `- exclude archived: yes`,
         `- exclude orgs: ${excludeLine}`,
         `- repos: ${repoCount.before} -> ${repoCount.after} (cloned: ${repoCount.cloned})`,
         ``,
         `### Languages (Linguist, aggregated from cloned repos)`,
         ``,
+        langsImg,
+        ``,
+        `<details><summary>raw breakdown</summary>`,
+        ``,
         langLines,
+        ``,
+        `</details>`,
         ``,
         `### Activity (merged heatmap)`,
         ``,
-        heatmapSvg,
+        heatImg,
         ``,
         `updated: \`${generatedAt}\``,
         ``,
-        `${README_MARKER_END}`
+        `${README_MARKER_END}`,
     ].join("\n");
 }
 
@@ -567,25 +661,164 @@ function replaceBetweenMarkers(text, start, end, replacementBlock) {
     return `${before}${replacementBlock}${after}`;
 }
 
-function formatBytes(n) {
-    const units = ["B", "KB", "MB", "GB"];
-    let x = n;
-    let i = 0;
-    while (x >= 1024 && i < units.length - 1) {
-        x /= 1024;
-        i++;
-    }
-    return `${x.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+/* ------------------------- SVG: stats cards ------------------------- */
+
+function buildStatsCardsSvg({ users, stats, repoCount }) {
+    const w = 740;
+    const pad = 18;
+    const gap = 12;
+
+    const cardW = Math.floor((w - pad * 2 - gap) / 2);
+    const cardH = 84;
+    const h = pad * 2 + cardH * 2 + gap;
+
+    const bg = "#0d1117";
+    const stroke = "#30363d";
+    const text = "#c9d1d9";
+    const sub = "#8b949e";
+
+    const items = [
+        { title: "Users", value: `${users.personal} + ${users.work}`, sub: "merged accounts" },
+        { title: "Contributions", value: fmtInt(stats.total), sub: "last ~1y (calendar)" },
+        { title: "PR / Issue", value: `${fmtInt(stats.prs)} / ${fmtInt(stats.issues)}`, sub: "contributionsCollection" },
+        { title: "Commit / Repo", value: `${fmtInt(stats.commits)} / ${fmtInt(stats.repos)}`, sub: `repos cloned: ${repoCount.cloned}` },
+    ];
+
+    const card = (x, y, { title, value, subline }) => {
+        return `
+<g>
+  <rect x="${x}" y="${y}" width="${cardW}" height="${cardH}" rx="12" ry="12" fill="${bg}" stroke="${stroke}"/>
+  <text x="${x + 14}" y="${y + 28}" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="13" fill="${sub}">${escapeXml(
+            title
+        )}</text>
+  <text x="${x + 14}" y="${y + 56}" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="22" font-weight="700" fill="${text}">${escapeXml(
+            value
+        )}</text>
+  <text x="${x + 14}" y="${y + 74}" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="12" fill="${sub}">${escapeXml(
+            subline
+        )}</text>
+</g>`;
+    };
+
+    const [a, b, c, d] = items.map((x) => ({
+        title: x.title,
+        value: x.value,
+        subline: x.sub,
+    }));
+
+    const x1 = pad;
+    const x2 = pad + cardW + gap;
+    const y1 = pad;
+    const y2 = pad + cardH + gap;
+
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+${card(x1, y1, a)}
+${card(x2, y1, b)}
+${card(x1, y2, c)}
+${card(x2, y2, d)}
+</svg>`;
 }
 
-// =========================
-// Heatmap SVG
-// =========================
+/* ------------------------- SVG: language bars ------------------------- */
+
+function buildLangBarsSvg({ title, items, note }) {
+    const w = 900;
+    const pad = 18;
+
+    const text = "#c9d1d9";
+    const sub = "#8b949e";
+    const stroke = "#30363d";
+
+    const headerH = 70;
+    const rowH = 34;
+    const barH = 18;
+
+    const n = Math.min(items.length, LANG_TOP_N);
+    const h = pad * 2 + headerH + n * rowH + 12;
+
+    const barX = pad + 260;
+    const barW = w - barX - pad;
+
+    const bg = "#0d1117";
+    const panel = "#161b22";
+
+    // If empty, still output stable frame
+    const safeMaxPct = Math.max(...items.slice(0, n).map((x) => x.pct), 0.000001);
+
+    // Mask for rounded bar
+    const maskId = `mask_${Math.random().toString(16).slice(2)}`;
+
+    let bars = "";
+    if (n > 0) {
+        for (let i = 0; i < n; i++) {
+            const it = items[i];
+            const y = pad + headerH + i * rowH;
+
+            const width = Math.max(2, Math.round(barW * (it.pct / safeMaxPct)));
+            const color = `hsl(${hashToHue(it.lang)}, 70%, 55%)`;
+
+            bars += `
+<g>
+  <text x="${pad}" y="${y + 14}" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="13" fill="${text}">${escapeXml(
+                it.lang
+            )}</text>
+  <text x="${pad}" y="${y + 30}" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="12" fill="${sub}">${(it.pct * 100).toFixed(
+                1
+            )}% · ${escapeXml(formatBytes(it.bytes))}</text>
+
+  <rect x="${barX}" y="${y + 8}" width="${barW}" height="${barH}" rx="9" ry="9" fill="#0b1320" stroke="${stroke}" />
+  <rect x="${barX}" y="${y + 8}" width="${width}" height="${barH}" rx="9" ry="9" fill="${color}">
+    <title>${escapeXml(`${it.lang}: ${(it.pct * 100).toFixed(1)}% (${formatBytes(it.bytes)})`)}</title>
+  </rect>
+</g>`;
+        }
+    }
+
+    // Stable SVG frame (even if bars empty)
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+  <defs>
+    <mask id="${maskId}">
+      <rect x="${pad}" y="${pad + headerH - 20}" width="${w - pad * 2}" height="9999" fill="#fff"/>
+    </mask>
+  </defs>
+
+  <rect x="0" y="0" width="${w}" height="${h}" rx="16" ry="16" fill="${bg}" />
+  <rect x="${pad}" y="${pad}" width="${w - pad * 2}" height="${h - pad * 2}" rx="12" ry="12" fill="${panel}" stroke="${stroke}" />
+
+  <text x="${pad + 18}" y="${pad + 30}" fill="${text}" font-size="18" font-weight="700"
+    font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">${escapeXml(title)}</text>
+
+  <text x="${pad + 18}" y="${pad + 52}" fill="${sub}" font-size="12"
+    font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">${escapeXml(note ?? "")}</text>
+
+  <g mask="url(#${maskId})">
+    ${bars}
+  </g>
+
+  ${
+        n === 0
+            ? `<text x="${pad + 18}" y="${pad + headerH + 30}" fill="${sub}" font-size="12"
+  font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">No language data (linguist returned empty)</text>`
+            : ""
+    }
+</svg>`;
+}
+
+/* ------------------------- SVG: heatmap ------------------------- */
+
 function buildHeatmapSvg(calendarByDate) {
     const dates = [...calendarByDate.keys()].sort();
-    if (dates.length === 0) return "_no data_";
+    if (dates.length === 0) {
+        // stable empty svg
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="740" height="140" viewBox="0 0 740 140">
+  <rect x="0" y="0" width="740" height="140" rx="16" ry="16" fill="#0d1117"/>
+  <text x="20" y="70" fill="#8b949e" font-size="14" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto">no data</text>
+</svg>`;
+    }
 
-    const max = Math.max(...dates.map(d => calendarByDate.get(d) ?? 0));
+    const max = Math.max(...dates.map((d) => calendarByDate.get(d) ?? 0));
     const levelOf = (c) => {
         if (c <= 0) return 0;
         if (max <= 0) return 1;
@@ -593,7 +826,7 @@ function buildHeatmapSvg(calendarByDate) {
         return Math.min(4, Math.max(1, lvl));
     };
 
-    const colors = ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"];
+    const colors = ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"];
 
     const last = new Date(dates[dates.length - 1] + "T00:00:00Z");
     const days = 53 * 7;
@@ -609,25 +842,58 @@ function buildHeatmapSvg(calendarByDate) {
 
     const cell = 11;
     const gap = 2;
-    const width = 53 * (cell + gap) + 20;
-    const height = 7 * (cell + gap) + 20;
+    const pad = 18;
+    const gridW = 53 * (cell + gap);
+    const gridH = 7 * (cell + gap);
+
+    const w = pad * 2 + gridW + 20;
+    const h = pad * 2 + gridH + 20;
 
     let rects = "";
     for (let idx = 0; idx < cells.length; idx++) {
         const col = Math.floor(idx / 7);
         const row = idx % 7;
-        const x = 10 + col * (cell + gap);
-        const y = 10 + row * (cell + gap);
+        const x = pad + 10 + col * (cell + gap);
+        const y = pad + 10 + row * (cell + gap);
         const fill = colors[cells[idx].level];
-        const title = `${cells[idx].key}: ${cells[idx].c}`;
-        rects += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2" ry="2" fill="${fill}"><title>${escapeXml(title)}</title></rect>`;
+        rects += `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2" ry="2" fill="${fill}"><title>${escapeXml(
+            `${cells[idx].key}: ${cells[idx].c}`
+        )}</title></rect>`;
     }
 
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-${rects}
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+  <rect x="0" y="0" width="${w}" height="${h}" rx="16" ry="16" fill="#0d1117"/>
+  <rect x="${pad}" y="${pad}" width="${w - pad * 2}" height="${h - pad * 2}" rx="12" ry="12" fill="#0b1320" stroke="#30363d"/>
+  ${rects}
 </svg>`;
+}
 
-    return `\n${svg}\n`;
+/* ------------------------- utils ------------------------- */
+
+function hashToHue(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h % 360;
+}
+
+function fmtInt(n) {
+    const x = Number(n);
+    if (!Number.isFinite(x)) return "0";
+    return Math.round(x).toLocaleString("en-US");
+}
+
+function formatBytes(n) {
+    const units = ["B", "KB", "MB", "GB"];
+    let x = Number(n);
+    if (!Number.isFinite(x) || x < 0) x = 0;
+
+    let i = 0;
+    while (x >= 1024 && i < units.length - 1) {
+        x /= 1024;
+        i++;
+    }
+    return `${x.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
 function escapeXml(s) {
@@ -638,31 +904,9 @@ function escapeXml(s) {
         .replaceAll('"', "&quot;");
 }
 
-// =========================
-// Concurrency helper
-// =========================
-async function runWithConcurrency(items, concurrency, worker) {
-    if (concurrency <= 1) {
-        for (const it of items) await worker(it);
-        return;
-    }
+/* ------------------------- run ------------------------- */
 
-    let idx = 0;
-    const runners = new Array(concurrency).fill(null).map(async () => {
-        while (true) {
-            const i = idx++;
-            if (i >= items.length) return;
-            await worker(items[i]);
-        }
-    });
-
-    await Promise.all(runners);
-}
-
-// =========================
-// Entrypoint
-// =========================
-main().catch(err => {
+main().catch((err) => {
     console.error(err);
     process.exit(1);
 });

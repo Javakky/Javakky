@@ -47,12 +47,24 @@ jobs:
       - name: Commit & push if changed
         run: |
           set -euxo pipefail
-          if git diff --quiet; then
+          
+          # 変更 + untracked をまとめて検知
+          if [ -z "$(git status --porcelain)" ]; then
             echo "No changes."
             exit 0
           fi
+          
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md
+          
+          # README と生成物を追加（assets/ 配下を含める）
+          git add README.md assets
+          
+          # それでも差分が無いケースに備えて（念のため）
+          if git diff --cached --quiet; then
+            echo "No staged changes."
+            exit 0
+          fi
+          
           git commit -m "chore: update profile README"
           git push
