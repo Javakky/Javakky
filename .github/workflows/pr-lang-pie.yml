@@ -38,8 +38,7 @@ jobs:
             --metric churn \
             --out-svg generated/pr_langs.svg \
             --out-json generated/pr_langs.json \
-            --max-prs-per-window 900 \
-            --window month
+            --max-prs-per-window 900
 
       - name: Commit artifacts
         run: |
