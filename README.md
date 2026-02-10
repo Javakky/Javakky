@@ -13,6 +13,46 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 
 <!-- PROFILE_AUTOGEN:START -->
 
+## 🧠 PR Diff Languages (All time, Linguist-based)
+
+<img src="assets/profile-stats.svg" alt="Profile stats" />
+
+### Repo filters
+
+- users: Javakky + Javakky-pxv
+- exclude forks: yes (except allowlist)
+- fork allowlist: `play-swagger/play-swagger`
+- exclude archived: yes
+- exclude orgs: (none)
+- repos: 50 -> 35 (cloned: 35)
+
+### Languages (Linguist, aggregated from cloned repos)
+
+<img src="assets/profile-langs.svg" alt="Languages" />
+
+<details><summary>raw breakdown</summary>
+
+- Scala: 44.6% (2.5 MB)
+- HTML: 24.0% (1.3 MB)
+- Java: 14.8% (838.8 KB)
+- PHP: 9.3% (527.2 KB)
+- Python: 3.8% (213.6 KB)
+- JavaScript: 1.3% (74.2 KB)
+- Shell: 0.7% (41.9 KB)
+- CSS: 0.4% (22.2 KB)
+- C: 0.4% (20.1 KB)
+- ANTLR: 0.4% (20.1 KB)
+- TypeScript: 0.3% (16.6 KB)
+- C++: 0.1% (6.3 KB)
+
+</details>
+
+### Activity (merged heatmap)
+
+<img src="assets/profile-heatmap.svg" alt="Activity heatmap" />
+
+updated: `2026-02-10T07:50:02.982Z`
+
 <!-- PROFILE_AUTOGEN:END -->
 
 ---
