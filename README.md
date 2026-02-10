@@ -9,8 +9,6 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 
 ---
 
-## 🧠 PR Diff Languages (All time, Linguist-based)
-
 <!-- PROFILE_AUTOGEN:START -->
 
 ## 🧠 PR Diff Languages (All time, Linguist-based)
