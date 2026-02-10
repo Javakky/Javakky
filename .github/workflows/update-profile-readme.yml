@@ -1,0 +1,58 @@
+name: Update Profile README (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      PERSONAL_USER: ${{ vars.PERSONAL_USER }}
+      WORK_USER: ${{ vars.WORK_USER }}
+
+      PERSONAL_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
+      WORK_TOKEN: ${{ secrets.WORK_TOKEN }}
+
+      MAX_REPOS_TO_CLONE: ${{ vars.MAX_REPOS_TO_CLONE || '200' }}
+
+      # 例: "my-company,another-org"
+      EXCLUDE_ORGS: ${{ vars.EXCLUDE_ORGS || '' }}
+
+      README_MARKER_START: "<!-- PROFILE_AUTOGEN:START -->"
+      README_MARKER_END: "<!-- PROFILE_AUTOGEN:END -->"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Run updater
+        run: node scripts/update-readme.mjs
+
+      - name: Commit & push if changed
+        run: |
+          set -euxo pipefail
+          if git diff --quiet; then
+            echo "No changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "chore: update profile README"
+          git push

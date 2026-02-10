@@ -1,0 +1,8 @@
+{
+  "name": "profile-readme-updater",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "update": "node scripts/update-readme.mjs"
+  }
+}

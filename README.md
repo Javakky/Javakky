@@ -9,15 +9,15 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 
 ---
 
-## 🧠 PR Diff Languages (All time, Linguist-based) — ✅ MUST
+## 🧠 PR Diff Languages (All time, Linguist-based)
 
-<div align="center">
-  <img src="./generated/pr_langs.svg" alt="PR diff language pie (linguist-based, all time)" />
-</div>
+<!-- PROFILE_AUTOGEN:START -->
+
+<!-- PROFILE_AUTOGEN:END -->
 
 ---
 
-## 📊 GitHub Stats (merged accounts) — 見栄え用
+## 📊 GitHub Stats (merged accounts)
 
 <div align="center">
 
@@ -37,7 +37,7 @@ src="https://streak-stats.demolab.com/?user=Javakky&hide_border=true"
 
 ---
 
-## 🧩 Summary — もう少し情報を足す（任意）
+## 🧩 Summary
 
 <div align="center">
   <img
