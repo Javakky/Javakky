@@ -15,15 +15,6 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 
 <img src="assets/profile-stats.svg" alt="Profile stats" />
 
-### Repo filters
-
-- users: Javakky + Javakky-pxv
-- exclude forks: yes (except allowlist)
-- fork allowlist: `play-swagger/play-swagger`
-- exclude archived: yes
-- exclude orgs: (none)
-- repos: 50 -> 35 (cloned: 35)
-
 ### Languages (Linguist, aggregated from cloned repos)
 
 <img src="assets/profile-langs.svg" alt="Languages" />
