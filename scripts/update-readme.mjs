@@ -5,8 +5,8 @@ import { execFileSync } from "node:child_process";
 
 const PERSONAL_USER = mustEnv("PERSONAL_USER");
 const WORK_USER = mustEnv("WORK_USER");
-const PERSONAL_TOKEN = mustEnv("PERSONAL_TOKEN");
-const WORK_TOKEN = mustEnv("WORK_TOKEN");
+const GH_TOKEN_MAIN = mustEnv("GH_TOKEN_MAIN");
+const GH_TOKEN_WORK = mustEnv("GH_TOKEN_WORK");
 
 const MAX_REPOS_TO_CLONE = parseInt(process.env.MAX_REPOS_TO_CLONE ?? "200", 10);
 const README_MARKER_START = process.env.README_MARKER_START ?? "<!-- PROFILE_AUTOGEN:START -->";
@@ -27,12 +27,12 @@ async function main() {
     assertInGitRepo();
 
     // 1) private を含めて owned repos を取る（/user/repos）
-    const personalOwned = await listOwnedReposAuthed(PERSONAL_TOKEN);
-    const workOwned = await listOwnedReposAuthed(WORK_TOKEN);
+    const personalOwned = await listOwnedReposAuthed(GH_TOKEN_MAIN);
+    const workOwned = await listOwnedReposAuthed(GH_TOKEN_WORK);
 
     // 2) merged PR 経由で repo を拾う（owner じゃない repo も含む）
-    const personalMergedPrRepos = await listReposFromMergedPullRequests(PERSONAL_USER, PERSONAL_TOKEN);
-    const workMergedPrRepos = await listReposFromMergedPullRequests(WORK_USER, WORK_TOKEN);
+    const personalMergedPrRepos = await listReposFromMergedPullRequests(PERSONAL_USER, GH_TOKEN_MAIN);
+    const workMergedPrRepos = await listReposFromMergedPullRequests(WORK_USER, GH_TOKEN_WORK);
 
     // 3) repoSet（full_name -> repo）
     const repoSet = new Map();
@@ -85,8 +85,8 @@ async function main() {
     }
 
     // 7) Stats / 草：GraphQL contributionsCollection を両アカウント分取得してマージ
-    const personalContrib = await getContrib(PERSONAL_USER, PERSONAL_TOKEN);
-    const workContrib = await getContrib(WORK_USER, WORK_TOKEN);
+    const personalContrib = await getContrib(PERSONAL_USER, GH_TOKEN_MAIN);
+    const workContrib = await getContrib(WORK_USER, GH_TOKEN_WORK);
     const merged = mergeContrib(personalContrib, workContrib);
 
     // 8) README 差し込み
@@ -225,8 +225,8 @@ function normalizeRepo(r) {
 
 function pickTokenForRepo(fullName) {
     const [owner] = fullName.split("/");
-    if (owner.toLowerCase() === WORK_USER.toLowerCase()) return WORK_TOKEN;
-    return PERSONAL_TOKEN;
+    if (owner.toLowerCase() === WORK_USER.toLowerCase()) return GH_TOKEN_WORK;
+    return GH_TOKEN_MAIN;
 }
 
 function shallowClone(cloneUrl, token, targetDir, branch) {

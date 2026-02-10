@@ -15,8 +15,8 @@ jobs:
       PERSONAL_USER: ${{ vars.PERSONAL_USER }}
       WORK_USER: ${{ vars.WORK_USER }}
 
-      PERSONAL_TOKEN: ${{ secrets.PERSONAL_TOKEN }}
-      WORK_TOKEN: ${{ secrets.WORK_TOKEN }}
+      GH_TOKEN_MAIN: ${{ secrets.GH_TOKEN_MAIN }}
+      GH_TOKEN_WORK: ${{ secrets.GH_TOKEN_WORK }}
 
       MAX_REPOS_TO_CLONE: ${{ vars.MAX_REPOS_TO_CLONE || '200' }}
 
