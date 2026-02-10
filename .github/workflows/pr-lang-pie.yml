@@ -11,6 +11,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+
     steps:
       - uses: actions/checkout@v4
 
@@ -38,7 +40,8 @@ jobs:
             --metric churn \
             --out-svg generated/pr_langs.svg \
             --out-json generated/pr_langs.json \
-            --max-prs-per-window 900
+            --max-prs-per-window 900 \
+            --min-total-score 1
 
       - name: Commit artifacts
         run: |
