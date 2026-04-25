@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="526" viewBox="0 0 900 526">
   <defs>
-    <mask id="mask_26610434643fb">
+    <mask id="mask_cea3ad1c17f9f">
       <rect x="18" y="68" width="864" height="9999" fill="#fff"/>
     </mask>
   </defs>
@@ -13,9 +13,9 @@
     font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">PR Diff Languages (All time, Linguist-based)</text>
 
   <text x="36" y="70" fill="#8b949e" font-size="12"
-    font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">repos cloned: 36 / filtered: 36 / total unique: 51</text>
+    font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">repos cloned: 38 / filtered: 38 / total unique: 53</text>
 
-  <g mask="url(#mask_26610434643fb)">
+  <g mask="url(#mask_cea3ad1c17f9f)">
     
 <g>
   <text x="18" y="102" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="13" fill="#c9d1d9">Scala</text>
@@ -73,11 +73,11 @@
 </g>
 <g>
   <text x="18" y="306" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="13" fill="#c9d1d9">Shell</text>
-  <text x="18" y="322" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="12" fill="#8b949e">0.5% · 28.6 KB</text>
+  <text x="18" y="322" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="12" fill="#8b949e">0.5% · 32.2 KB</text>
 
   <rect x="278" y="300" width="604" height="18" rx="9" ry="9" fill="#0b1320" stroke="#30363d" />
-  <rect x="278" y="300" width="7" height="18" rx="9" ry="9" fill="hsl(144, 70%, 55%)">
-    <title>Shell: 0.5% (28.6 KB)</title>
+  <rect x="278" y="300" width="8" height="18" rx="9" ry="9" fill="hsl(144, 70%, 55%)">
+    <title>Shell: 0.5% (32.2 KB)</title>
   </rect>
 </g>
 <g>

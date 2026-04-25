@@ -22,7 +22,7 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 - fork allowlist: `play-swagger/play-swagger`
 - exclude archived: yes
 - exclude orgs: (none)
-- repos: 51 -> 36 (cloned: 36)
+- repos: 53 -> 38 (cloned: 38)
 
 ### Languages (Linguist, aggregated from cloned repos)
 
@@ -36,7 +36,7 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 - PHP: 8.9% (537.3 KB)
 - Python: 3.6% (215.1 KB)
 - JavaScript: 1.2% (74.2 KB)
-- Shell: 0.5% (28.6 KB)
+- Shell: 0.5% (32.2 KB)
 - CSS: 0.4% (22.2 KB)
 - C: 0.3% (20.1 KB)
 - ANTLR: 0.3% (20.1 KB)
@@ -49,7 +49,7 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 
 <img src="assets/profile-heatmap.svg" alt="Activity heatmap" />
 
-updated: `2026-03-21T13:22:52.414Z`
+updated: `2026-04-25T00:09:46.128Z`
 
 <!-- PROFILE_AUTOGEN:END -->
 
