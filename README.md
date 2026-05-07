@@ -36,7 +36,7 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 - PHP: 8.9% (537.3 KB)
 - Python: 3.6% (215.1 KB)
 - JavaScript: 1.2% (74.2 KB)
-- Shell: 0.5% (32.2 KB)
+- Shell: 0.5% (33.1 KB)
 - CSS: 0.4% (22.2 KB)
 - C: 0.3% (20.1 KB)
 - ANTLR: 0.3% (20.1 KB)
@@ -49,7 +49,7 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 
 <img src="assets/profile-heatmap.svg" alt="Activity heatmap" />
 
-updated: `2026-04-25T00:09:46.128Z`
+updated: `2026-05-07T00:42:23.827Z`
 
 <!-- PROFILE_AUTOGEN:END -->
 
