@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="526" viewBox="0 0 900 526">
   <defs>
-    <mask id="mask_2a24c96e91dad">
+    <mask id="mask_7a2c9632a6a14">
       <rect x="18" y="68" width="864" height="9999" fill="#fff"/>
     </mask>
   </defs>
@@ -13,17 +13,17 @@
     font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">PR Diff Languages (All time, Linguist-based)</text>
 
   <text x="36" y="70" fill="#8b949e" font-size="12"
-    font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">repos cloned: 38 / filtered: 38 / total unique: 53</text>
+    font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">repos cloned: 39 / filtered: 39 / total unique: 54</text>
 
-  <g mask="url(#mask_2a24c96e91dad)">
+  <g mask="url(#mask_7a2c9632a6a14)">
     
 <g>
   <text x="18" y="102" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="13" fill="#c9d1d9">Scala</text>
-  <text x="18" y="118" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="12" fill="#8b949e">42.6% · 2.5 MB</text>
+  <text x="18" y="118" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="12" fill="#8b949e">42.7% · 2.5 MB</text>
 
   <rect x="278" y="96" width="604" height="18" rx="9" ry="9" fill="#0b1320" stroke="#30363d" />
   <rect x="278" y="96" width="604" height="18" rx="9" ry="9" fill="hsl(334, 70%, 55%)">
-    <title>Scala: 42.6% (2.5 MB)</title>
+    <title>Scala: 42.7% (2.5 MB)</title>
   </rect>
 </g>
 <g>
@@ -31,7 +31,7 @@
   <text x="18" y="152" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="12" fill="#8b949e">22.5% · 1.3 MB</text>
 
   <rect x="278" y="130" width="604" height="18" rx="9" ry="9" fill="#0b1320" stroke="#30363d" />
-  <rect x="278" y="130" width="319" height="18" rx="9" ry="9" fill="hsl(99, 70%, 55%)">
+  <rect x="278" y="130" width="318" height="18" rx="9" ry="9" fill="hsl(99, 70%, 55%)">
     <title>HTML: 22.5% (1.3 MB)</title>
   </rect>
 </g>
@@ -40,7 +40,7 @@
   <text x="18" y="186" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="12" fill="#8b949e">19.2% · 1.1 MB</text>
 
   <rect x="278" y="164" width="604" height="18" rx="9" ry="9" fill="#0b1320" stroke="#30363d" />
-  <rect x="278" y="164" width="272" height="18" rx="9" ry="9" fill="hsl(26, 70%, 55%)">
+  <rect x="278" y="164" width="271" height="18" rx="9" ry="9" fill="hsl(26, 70%, 55%)">
     <title>Java: 19.2% (1.1 MB)</title>
   </rect>
 </g>

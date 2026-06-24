@@ -22,7 +22,7 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 - fork allowlist: `play-swagger/play-swagger`
 - exclude archived: yes
 - exclude orgs: (none)
-- repos: 53 -> 38 (cloned: 38)
+- repos: 54 -> 39 (cloned: 39)
 
 ### Languages (Linguist, aggregated from cloned repos)
 
@@ -30,7 +30,7 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 
 <details><summary>raw breakdown</summary>
 
-- Scala: 42.6% (2.5 MB)
+- Scala: 42.7% (2.5 MB)
 - HTML: 22.5% (1.3 MB)
 - Java: 19.2% (1.1 MB)
 - PHP: 8.9% (537.3 KB)
@@ -49,7 +49,7 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 
 <img src="assets/profile-heatmap.svg" alt="Activity heatmap" />
 
-updated: `2026-05-07T00:42:23.827Z`
+updated: `2026-06-24T05:32:56.132Z`
 
 <!-- PROFILE_AUTOGEN:END -->
 
