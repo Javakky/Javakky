@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="526" viewBox="0 0 900 526">
   <defs>
-    <mask id="mask_7a2c9632a6a14">
+    <mask id="mask_1b633582cb798">
       <rect x="18" y="68" width="864" height="9999" fill="#fff"/>
     </mask>
   </defs>
@@ -13,9 +13,9 @@
     font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">PR Diff Languages (All time, Linguist-based)</text>
 
   <text x="36" y="70" fill="#8b949e" font-size="12"
-    font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">repos cloned: 39 / filtered: 39 / total unique: 54</text>
+    font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial">repos cloned: 40 / filtered: 40 / total unique: 55</text>
 
-  <g mask="url(#mask_7a2c9632a6a14)">
+  <g mask="url(#mask_1b633582cb798)">
     
 <g>
   <text x="18" y="102" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto" font-size="13" fill="#c9d1d9">Scala</text>

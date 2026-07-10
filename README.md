@@ -22,7 +22,7 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 - fork allowlist: `play-swagger/play-swagger`
 - exclude archived: yes
 - exclude orgs: (none)
-- repos: 54 -> 39 (cloned: 39)
+- repos: 55 -> 40 (cloned: 40)
 
 ### Languages (Linguist, aggregated from cloned repos)
 
@@ -49,7 +49,7 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 
 <img src="assets/profile-heatmap.svg" alt="Activity heatmap" />
 
-updated: `2026-06-24T05:32:56.132Z`
+updated: `2026-07-10T06:28:49.361Z`
 
 <!-- PROFILE_AUTOGEN:END -->
 
