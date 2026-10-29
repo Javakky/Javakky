@@ -30,17 +30,17 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 
 <details><summary>raw breakdown</summary>
 
-- Scala: 42.7% (2.5 MB)
-- HTML: 22.5% (1.3 MB)
-- Java: 19.2% (1.1 MB)
-- PHP: 8.9% (537.3 KB)
-- Python: 3.6% (215.1 KB)
-- JavaScript: 1.2% (74.2 KB)
-- Shell: 0.5% (33.1 KB)
-- CSS: 0.4% (22.2 KB)
+- Scala: 38.5% (2.7 MB)
+- Java: 27.0% (1.9 MB)
+- HTML: 18.9% (1.3 MB)
+- PHP: 9.8% (704.0 KB)
+- Python: 3.1% (225.7 KB)
+- JavaScript: 1.0% (74.2 KB)
+- Shell: 0.4% (29.9 KB)
+- CSS: 0.3% (22.2 KB)
 - C: 0.3% (20.1 KB)
 - ANTLR: 0.3% (20.1 KB)
-- TypeScript: 0.3% (16.6 KB)
+- TypeScript: 0.2% (16.6 KB)
 - C++: 0.1% (6.3 KB)
 
 </details>
@@ -49,7 +49,7 @@ PR diff languages are calculated **from PR changes (add+del)** using **GitHub Li
 
 <img src="assets/profile-heatmap.svg" alt="Activity heatmap" />
 
-updated: `2026-07-10T06:28:49.361Z`
+updated: `2026-10-29T11:12:07.220Z`
 
 <!-- PROFILE_AUTOGEN:END -->
 
